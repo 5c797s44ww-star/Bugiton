@@ -1,0 +1,174 @@
+import { useMemo, useState } from 'react';
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+
+type Mode = 'year' | 'month' | 'week' | 'custom';
+
+interface Props {
+  timestamps: Date[];
+  wind: Float64Array;
+  solar: Float64Array;
+  load: Float64Array;
+  lowerBand: number;
+  upperBand: number;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBand }: Props) {
+  const [mode, setMode] = useState<Mode>('week');
+  const [monthIndex, setMonthIndex] = useState(0);
+  const [weekIndex, setWeekIndex] = useState(0);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+
+  const n = timestamps.length;
+  const minTime = n > 0 ? timestamps[0].getTime() : 0;
+  const maxTime = n > 0 ? timestamps[n - 1].getTime() : 0;
+
+  const [rangeStart, rangeEnd] = useMemo((): [number, number] => {
+    if (mode === 'year') return [minTime, maxTime];
+    if (mode === 'month') {
+      const d = new Date(timestamps[0] ?? new Date());
+      const s = new Date(d.getFullYear(), monthIndex, 1).getTime();
+      const e = new Date(d.getFullYear(), monthIndex + 1, 1).getTime();
+      return [s, e];
+    }
+    if (mode === 'week') {
+      const s = minTime + weekIndex * 7 * MS_PER_DAY;
+      return [s, s + 7 * MS_PER_DAY];
+    }
+    const s = customStart ? new Date(customStart).getTime() : minTime;
+    const e = customEnd ? new Date(customEnd).getTime() : maxTime;
+    return [s, e];
+  }, [mode, monthIndex, weekIndex, customStart, customEnd, minTime, maxTime, timestamps]);
+
+  const data = useMemo(() => {
+    const out: {
+      time: number;
+      wind: number;
+      solar: number;
+      re: number;
+      load: number;
+      band: [number, number];
+    }[] = [];
+    for (let t = 0; t < n; t++) {
+      const time = timestamps[t].getTime();
+      if (time < rangeStart || time > rangeEnd) continue;
+      out.push({
+        time,
+        wind: wind[t],
+        solar: solar[t],
+        re: wind[t] + solar[t],
+        load: load[t],
+        band: [lowerBand, upperBand],
+      });
+    }
+    return out;
+  }, [timestamps, wind, solar, load, rangeStart, rangeEnd, lowerBand, upperBand, n]);
+
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const numWeeks = Math.max(1, Math.floor((maxTime - minTime) / (7 * MS_PER_DAY)));
+
+  return (
+    <div className="panel">
+      <h2>Hourly production &amp; DC load</h2>
+      <div className="range-controls">
+        {(['year', 'month', 'week', 'custom'] as Mode[]).map((m) => (
+          <button key={m} className={mode === m ? 'active' : ''} onClick={() => setMode(m)}>
+            {m === 'year' ? 'Full year' : m === 'month' ? 'Month' : m === 'week' ? 'Week' : 'Custom'}
+          </button>
+        ))}
+        {mode === 'month' && (
+          <select value={monthIndex} onChange={(e) => setMonthIndex(Number(e.target.value))}>
+            {monthNames.map((mn, i) => (
+              <option key={mn} value={i}>
+                {mn}
+              </option>
+            ))}
+          </select>
+        )}
+        {mode === 'week' && (
+          <input
+            type="range"
+            min={0}
+            max={numWeeks - 1}
+            value={weekIndex}
+            onChange={(e) => setWeekIndex(Number(e.target.value))}
+          />
+        )}
+        {mode === 'custom' && (
+          <>
+            <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} />
+            <span>to</span>
+            <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} />
+          </>
+        )}
+      </div>
+      <ResponsiveContainer width="100%" height={360}>
+        <ComposedChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+          <XAxis
+            dataKey="time"
+            type="number"
+            domain={['dataMin', 'dataMax']}
+            tickFormatter={(t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            scale="time"
+          />
+          <YAxis label={{ value: 'pu', angle: -90, position: 'insideLeft' }} />
+          <Tooltip
+            labelFormatter={(t) => new Date(t as number).toLocaleString()}
+            formatter={(v) => Number(v).toFixed(3)}
+          />
+          <Legend />
+          <Area
+            dataKey="band"
+            name="Flexibility band"
+            stroke="none"
+            fill="#94a3b8"
+            fillOpacity={0.18}
+            isAnimationActive={false}
+          />
+          <Area
+            type="monotone"
+            dataKey="wind"
+            name="Wind generation"
+            stackId="re"
+            stroke="#2563eb"
+            fill="#2563eb"
+            fillOpacity={0.55}
+            isAnimationActive={false}
+          />
+          <Area
+            type="monotone"
+            dataKey="solar"
+            name="Solar generation"
+            stackId="re"
+            stroke="#d97706"
+            fill="#f59e0b"
+            fillOpacity={0.55}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="load"
+            name="Optimized DC load"
+            stroke="#dc2626"
+            dot={false}
+            strokeWidth={2}
+            isAnimationActive={false}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
