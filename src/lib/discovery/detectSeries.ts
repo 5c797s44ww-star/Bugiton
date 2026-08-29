@@ -7,6 +7,7 @@ import {
   looksLikeTimestampHeader,
   looksLikeValueHeader,
 } from './keywords';
+import { hasExplicitOffset, naiveDateToHelsinkiUtcMs, helsinkiWallTimeToUtcMs, parseNaiveDateTimeComponents } from './timezone';
 import type { RawTable, SeriesCandidate, SeriesKind } from './types';
 import { SERIES_KINDS } from './types';
 
@@ -20,15 +21,30 @@ function roundToMinute(ms: number): number {
   return Math.round(ms / MINUTE_MS) * MINUTE_MS;
 }
 
+// Excel epoch (serial 25569 = 1970-01-01) date cells have no timezone concept - a serial
+// date is a naive wall-clock value. Interpreted here as Finnish local time (see timezone.ts),
+// since that's what Fingrid data and Finnish-authored spreadsheets use.
 function parseTimestampCell(v: unknown): number | null {
-  if (v instanceof Date) return roundToMinute(v.getTime());
+  if (v instanceof Date) return roundToMinute(naiveDateToHelsinkiUtcMs(v));
   if (typeof v === 'number') {
-    if (v > 20000 && v < 80000) return roundToMinute((v - 25569) * 86400 * 1000); // Excel serial date fallback
+    if (v > 20000 && v < 80000) {
+      const naiveUtcMs = Math.round((v - 25569) * 86400 * 1000);
+      return roundToMinute(naiveDateToHelsinkiUtcMs(new Date(naiveUtcMs)));
+    }
     return null;
   }
   if (typeof v === 'string') {
     const s = v.trim();
     if (!s) return null;
+    if (hasExplicitOffset(s)) {
+      const t = Date.parse(s);
+      return Number.isNaN(t) ? null : roundToMinute(t);
+    }
+    const comp = parseNaiveDateTimeComponents(s);
+    if (comp) return roundToMinute(helsinkiWallTimeToUtcMs(comp.y, comp.mo, comp.d, comp.h, comp.mi, comp.sec));
+    // Last-resort fallback for formats we don't explicitly recognize (already-UTC ISO
+    // without an offset marker, e.g. "2025-01-01T00:00:00.000" from `Date.toISOString()`-like
+    // sources): parse directly rather than guessing a timezone.
     const t = Date.parse(s);
     return Number.isNaN(t) ? null : roundToMinute(t);
   }
@@ -150,6 +166,7 @@ function detectTablesLong(table: RawTable, tsCol: number, warnings: string[]): S
     candidates.push({
       id: `long-${idCounter++}`,
       kind,
+      fileName: table.fileName,
       sheetName: table.sheetName,
       label: name || (datasetId != null ? `dataset ${datasetId}` : 'unnamed series'),
       unit,
@@ -180,6 +197,7 @@ function detectTablesWide(table: RawTable, tsCol: number, warnings: string[]): S
     candidates.push({
       id: `wide-${idCounter++}`,
       kind: classified.kind,
+      fileName: table.fileName,
       sheetName: table.sheetName,
       label: header,
       unit: detectUnit(header),

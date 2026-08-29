@@ -17,7 +17,7 @@ async function loadCsvTable(file: File): Promise<RawTable> {
   const parsed = Papa.parse<string[]>(text, { skipEmptyLines: true, dynamicTyping: false });
   const rows = parsed.data;
   const headers = (rows[0] ?? []).map((h) => String(h ?? '').trim());
-  return { sheetName: file.name, headers, rows: rows.slice(1) };
+  return { fileName: file.name, sheetName: file.name, headers, rows: rows.slice(1) };
 }
 
 async function loadExcelTables(file: File): Promise<RawTable[]> {
@@ -26,7 +26,7 @@ async function loadExcelTables(file: File): Promise<RawTable[]> {
   for (const { sheet, data } of sheets) {
     if (data.length === 0) continue;
     const headers = (data[0] ?? []).map((h) => String(h ?? '').trim());
-    tables.push({ sheetName: sheet, headers, rows: data.slice(1) });
+    tables.push({ fileName: file.name, sheetName: sheet, headers, rows: data.slice(1) });
   }
   return tables;
 }
@@ -34,4 +34,10 @@ async function loadExcelTables(file: File): Promise<RawTable[]> {
 export async function loadTables(file: File): Promise<RawTable[]> {
   if (isExcel(file)) return loadExcelTables(file);
   return [await loadCsvTable(file)];
+}
+
+/** Loads and combines tables from multiple files (e.g. production and capacity uploaded separately). */
+export async function loadTablesFromFiles(files: File[]): Promise<RawTable[]> {
+  const all = await Promise.all(files.map((f) => loadTables(f)));
+  return all.flat();
 }

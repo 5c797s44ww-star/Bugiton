@@ -13,6 +13,7 @@ export type Unit = 'MW' | 'MWh' | 'unknown';
 
 /** A plain table extracted from one CSV file or one Excel sheet. */
 export interface RawTable {
+  fileName: string;
   sheetName: string;
   headers: string[];
   rows: unknown[][];
@@ -22,6 +23,7 @@ export interface RawTable {
 export interface SeriesCandidate {
   id: string;
   kind: SeriesKind;
+  fileName: string;
   sheetName: string;
   label: string;
   unit: Unit;
@@ -38,9 +40,20 @@ export interface DiscoveryReport {
   warnings: string[];
 }
 
+/** Independent resolution (minutes) detected for each of the four series - they need not match. */
+export type ResolutionByKind = Record<SeriesKind, number | null>;
+
+/** The canonical, source-agnostic format the optimization engine consumes. */
+export interface CanonicalDataset {
+  timestamps: Date[];
+  windCF: Float64Array;
+  solarCF: Float64Array;
+}
+
 export interface BuiltDataset {
+  canonical: CanonicalDataset;
   records: import('../types').HourlyRecord[];
-  resolutionMinutes: number | null;
+  resolutionMinutes: ResolutionByKind;
   periodStart: Date | null;
   periodEnd: Date | null;
   qualityPercent: number;

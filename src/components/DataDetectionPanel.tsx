@@ -3,7 +3,6 @@ import { SERIES_KIND_LABEL, SERIES_KINDS } from '../lib/discovery';
 import { pct } from '../lib/format';
 
 interface Props {
-  fileName: string;
   analysis: AnalyzeResult;
   selection: Partial<Record<SeriesKind, string>>;
   preview: BuiltDataset | null;
@@ -13,7 +12,7 @@ interface Props {
 }
 
 function candidateDescription(c: SeriesCandidate): string {
-  const parts = [`sheet "${c.sheetName}"`, `"${c.label}"`];
+  const parts = [`"${c.fileName}"`, `sheet "${c.sheetName}"`, `"${c.label}"`];
   if (c.datasetId != null) parts.push(`Fingrid dataset ${c.datasetId}`);
   if (c.isActualGeneration) parts.push('actual generation, not a forecast');
   return parts.join(' · ');
@@ -26,14 +25,30 @@ const MISSING_HINT: Record<SeriesKind, string> = {
   solar_capacity: 'Expected a column or dataset like "Aurinkovoiman kapasiteetti" / "Solar available capacity".',
 };
 
-export function DataDetectionPanel({ fileName, analysis, selection, preview, onSelectionChange, onConfirm, onCancel }: Props) {
-  const { candidatesByKind, needsConfirmation, missing, warnings } = analysis;
+function resolutionLabel(minutes: number | null): string {
+  if (minutes == null) return 'unknown';
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes === 60) return '60 min (hourly)';
+  return `${minutes} min (coarser than hourly)`;
+}
+
+/** Collapses wind/solar resolutions into one label when they match, otherwise shows both. */
+function combinedResolutionLabel(wind: number | null, solar: number | null): string {
+  if (wind === solar) return resolutionLabel(wind);
+  return `wind ${resolutionLabel(wind)}, solar ${resolutionLabel(solar)}`;
+}
+
+export function DataDetectionPanel({ analysis, selection, preview, onSelectionChange, onConfirm, onCancel }: Props) {
+  const { candidatesByKind, needsConfirmation, missing, warnings, fileNames } = analysis;
   const canConfirm = missing.length === 0;
 
   return (
     <div className="panel detection-panel">
       <h2>Data detected</h2>
-      <p className="hint">From "{fileName}". Review the automatic match below before running the optimizer.</p>
+      <p className="hint">
+        From {fileNames.map((n) => `"${n}"`).join(', ')}. Review the automatic match below before running the
+        optimizer.
+      </p>
 
       <ul className="detection-list">
         {SERIES_KINDS.map((kind) => {
@@ -85,12 +100,12 @@ export function DataDetectionPanel({ fileName, analysis, selection, preview, onS
       {preview && (
         <div className="detection-summary">
           <div>
-            <strong>Resolution:</strong>{' '}
-            {preview.resolutionMinutes == null
-              ? 'unknown'
-              : preview.resolutionMinutes < 60
-                ? `${preview.resolutionMinutes} min → converted to hourly`
-                : `${preview.resolutionMinutes} min (already hourly or coarser)`}
+            <strong>Production resolution:</strong>{' '}
+            {combinedResolutionLabel(preview.resolutionMinutes.wind_forecast, preview.resolutionMinutes.solar_forecast)}
+          </div>
+          <div>
+            <strong>Capacity resolution:</strong>{' '}
+            {combinedResolutionLabel(preview.resolutionMinutes.wind_capacity, preview.resolutionMinutes.solar_capacity)}
           </div>
           <div>
             <strong>Period:</strong>{' '}
@@ -115,7 +130,8 @@ export function DataDetectionPanel({ fileName, analysis, selection, preview, onS
       {!canConfirm && (
         <p className="warning-banner">
           Missing required data: {missing.map((k) => SERIES_KIND_LABEL[k]).join(', ')}. Optimization cannot start until
-          wind and solar forecasts and their capacities are all identified.
+          wind and solar forecasts and their capacities are all identified. You can upload another file (e.g. a
+          separate capacity file) without losing what's already been matched.
         </p>
       )}
 

@@ -10,11 +10,11 @@ import { DataDetectionPanel } from './components/DataDetectionPanel';
 import { SurplusDeficitPanel } from './components/SurplusDeficitPanel';
 import { generateSampleData } from './lib/sampleData';
 import { checkDataQuality } from './lib/dataQuality';
-import { computeCapacityFactors, surplusDeficit } from './lib/stats';
+import { computeCapacityFactors, surplusDeficit, type CapacityFactors } from './lib/stats';
 import { optimize } from './lib/optimizer';
-import { analyzeFile, buildFromSelection } from './lib/discovery';
+import { analyzeFiles, buildFromSelection } from './lib/discovery';
 import type { AnalyzeResult, SeriesKind } from './lib/discovery';
-import type { DataQualityIssue, HourlyRecord, Params } from './lib/types';
+import type { DataQualityIssue, Params } from './lib/types';
 
 const DEFAULT_PARAMS: Params = {
   utilization: 0.8,
@@ -26,18 +26,18 @@ const DEFAULT_PARAMS: Params = {
   objective: 'capacity',
 };
 
-interface PendingFile {
-  name: string;
+interface PendingUpload {
+  files: File[];
   analysis: AnalyzeResult;
 }
 
 function App() {
-  const [records, setRecords] = useState<HourlyRecord[]>(() => generateSampleData());
+  const [capacityFactors, setCapacityFactors] = useState<CapacityFactors>(() => computeCapacityFactors(generateSampleData()));
   const [dataLabel, setDataLabel] = useState('Synthetic demo data (2024, not real measurements)');
   const [qualityIssues, setQualityIssues] = useState<DataQualityIssue[]>(() => checkDataQuality(generateSampleData()));
   const [params, setParams] = useState<Params>(DEFAULT_PARAMS);
 
-  const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
+  const [pending, setPending] = useState<PendingUpload | null>(null);
   const [selection, setSelection] = useState<Partial<Record<SeriesKind, string>>>({});
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
@@ -45,45 +45,51 @@ function App() {
 
   const handleLoadSample = () => {
     const sample = generateSampleData();
-    setRecords(sample);
+    setCapacityFactors(computeCapacityFactors(sample));
     setDataLabel('Synthetic demo data (2024, not real measurements)');
     setQualityIssues(checkDataQuality(sample));
-    setPendingFile(null);
+    setPending(null);
     setAnalysisError(null);
   };
 
-  const handleFileSelected = async (file: File) => {
+  const runAnalysis = async (files: File[]) => {
     setAnalysisError(null);
     try {
-      const analysis = await analyzeFile(file);
-      setPendingFile({ name: file.name, analysis });
+      const analysis = await analyzeFiles(files);
+      setPending({ files, analysis });
       setSelection(analysis.autoSelected);
     } catch {
-      setAnalysisError(`Could not read "${file.name}". Make sure it's a valid CSV or Excel file.`);
-      setPendingFile(null);
+      setAnalysisError(`Could not read the uploaded file(s). Make sure they're valid CSV or Excel files.`);
+      setPending(null);
     }
   };
 
+  // Files uploaded together, or added to an already-open detection panel (e.g. production and
+  // capacity data uploaded as separate files), are pooled into one detection pass.
+  const handleFilesSelected = (files: File[]) => {
+    const combined = pending ? [...pending.files, ...files] : files;
+    void runAnalysis(combined);
+  };
+
   const preview = useMemo(() => {
-    if (!pendingFile) return null;
-    return buildFromSelection(pendingFile.analysis.candidatesByKind, selection);
-  }, [pendingFile, selection]);
+    if (!pending) return null;
+    return buildFromSelection(pending.analysis.candidatesByKind, selection);
+  }, [pending, selection]);
 
   const handleSelectionChange = (kind: SeriesKind, candidateId: string) => {
     setSelection((s) => ({ ...s, [kind]: candidateId }));
   };
 
   const handleConfirmDetection = () => {
-    if (!pendingFile || !preview) return;
-    setRecords(preview.records);
-    setDataLabel(`${pendingFile.name} (${preview.records.length} hours, auto-detected)`);
+    if (!pending || !preview) return;
+    setCapacityFactors(preview.canonical);
+    const fileList = pending.files.map((f) => f.name).join(', ');
+    setDataLabel(`${fileList} (${preview.canonical.timestamps.length} hours, auto-detected)`);
     setQualityIssues(preview.issues);
-    setPendingFile(null);
+    setPending(null);
   };
 
-  const handleCancelDetection = () => setPendingFile(null);
-
-  const capacityFactors = useMemo(() => computeCapacityFactors(records), [records]);
+  const handleCancelDetection = () => setPending(null);
 
   const optimizationResult = useMemo(
     () => optimize(capacityFactors.windCF, capacityFactors.solarCF, params),
@@ -110,15 +116,14 @@ function App() {
           <ParamsPanel
             params={params}
             onChange={updateParams}
-            onFileSelected={handleFileSelected}
+            onFilesSelected={handleFilesSelected}
             onLoadSample={handleLoadSample}
             dataInfo={dataLabel}
           />
           {analysisError && <p className="warning-banner">{analysisError}</p>}
-          {pendingFile ? (
+          {pending ? (
             <DataDetectionPanel
-              fileName={pendingFile.name}
-              analysis={pendingFile.analysis}
+              analysis={pending.analysis}
               selection={selection}
               preview={preview}
               onSelectionChange={handleSelectionChange}

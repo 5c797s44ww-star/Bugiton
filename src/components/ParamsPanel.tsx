@@ -4,7 +4,7 @@ import type { Params } from '../lib/types';
 interface Props {
   params: Params;
   onChange: (patch: Partial<Params>) => void;
-  onFileSelected: (file: File) => void;
+  onFilesSelected: (files: File[]) => void;
   onLoadSample: () => void;
   dataInfo: string;
 }
@@ -41,10 +41,10 @@ function SliderRow({
   );
 }
 
-export function ParamsPanel({ params, onChange, onFileSelected, onLoadSample, dataInfo }: Props) {
+export function ParamsPanel({ params, onChange, onFilesSelected, onLoadSample, dataInfo }: Props) {
   const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) onFileSelected(file);
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length > 0) onFilesSelected(files);
     e.target.value = '';
   };
 
@@ -157,6 +157,7 @@ export function ParamsPanel({ params, onChange, onFileSelected, onLoadSample, da
           Upload Fingrid data
           <input
             type="file"
+            multiple
             accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={handleFile}
             hidden
@@ -164,9 +165,10 @@ export function ParamsPanel({ params, onChange, onFileSelected, onLoadSample, da
         </label>
       </div>
       <p className="hint">
-        CSV or Excel, any layout — wind/solar production forecasts and their capacities are detected automatically
-        from column names, sheet names, units and Fingrid dataset IDs. You'll get to confirm the match before it's
-        used.
+        CSV or Excel, any layout, one or several files at once — wind/solar production forecasts and their
+        capacities are detected automatically from column names, sheet names, units and Fingrid dataset IDs, even
+        when production and capacity come from separate files or have different time resolutions. You'll get to
+        confirm the match before it's used.
       </p>
     </div>
   );
