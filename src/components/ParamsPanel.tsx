@@ -154,12 +154,19 @@ export function ParamsPanel({ params, onChange, onFileSelected, onLoadSample, da
           Use synthetic demo data
         </button>
         <label className="file-button">
-          Upload CSV
-          <input type="file" accept=".csv,text/csv" onChange={handleFile} hidden />
+          Upload Fingrid data
+          <input
+            type="file"
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={handleFile}
+            hidden
+          />
         </label>
       </div>
       <p className="hint">
-        CSV columns: timestamp, wind_generation, solar_generation, wind_capacity, solar_capacity
+        CSV or Excel, any layout — wind/solar production forecasts and their capacities are detected automatically
+        from column names, sheet names, units and Fingrid dataset IDs. You'll get to confirm the match before it's
+        used.
       </p>
     </div>
   );

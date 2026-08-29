@@ -6,12 +6,14 @@ import { HourlyChart } from './components/HourlyChart';
 import { DurationCurveChart } from './components/DurationCurveChart';
 import { MixTable } from './components/MixTable';
 import { DataQualityPanel } from './components/DataQualityPanel';
+import { DataDetectionPanel } from './components/DataDetectionPanel';
 import { SurplusDeficitPanel } from './components/SurplusDeficitPanel';
 import { generateSampleData } from './lib/sampleData';
-import { parseCsv } from './lib/csv';
 import { checkDataQuality } from './lib/dataQuality';
 import { computeCapacityFactors, surplusDeficit } from './lib/stats';
 import { optimize } from './lib/optimizer';
+import { analyzeFile, buildFromSelection } from './lib/discovery';
+import type { AnalyzeResult, SeriesKind } from './lib/discovery';
 import type { DataQualityIssue, HourlyRecord, Params } from './lib/types';
 
 const DEFAULT_PARAMS: Params = {
@@ -24,45 +26,64 @@ const DEFAULT_PARAMS: Params = {
   objective: 'capacity',
 };
 
+interface PendingFile {
+  name: string;
+  analysis: AnalyzeResult;
+}
+
 function App() {
   const [records, setRecords] = useState<HourlyRecord[]>(() => generateSampleData());
   const [dataLabel, setDataLabel] = useState('Synthetic demo data (2024, not real measurements)');
-  const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [qualityIssues, setQualityIssues] = useState<DataQualityIssue[]>(() => checkDataQuality(generateSampleData()));
   const [params, setParams] = useState<Params>(DEFAULT_PARAMS);
+
+  const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
+  const [selection, setSelection] = useState<Partial<Record<SeriesKind, string>>>({});
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const updateParams = (patch: Partial<Params>) => setParams((p) => ({ ...p, ...patch }));
 
   const handleLoadSample = () => {
-    setRecords(generateSampleData());
+    const sample = generateSampleData();
+    setRecords(sample);
     setDataLabel('Synthetic demo data (2024, not real measurements)');
-    setParseErrors([]);
+    setQualityIssues(checkDataQuality(sample));
+    setPendingFile(null);
+    setAnalysisError(null);
   };
 
-  const handleFileSelected = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? '');
-      const { records: parsed, errors } = parseCsv(text);
-      if (parsed.length === 0) {
-        setParseErrors(errors.length > 0 ? errors : ['No valid rows could be parsed from this file.']);
-        return;
-      }
-      setRecords(parsed);
-      setDataLabel(`${file.name} (${parsed.length} hours)`);
-      setParseErrors(errors);
-    };
-    reader.readAsText(file);
+  const handleFileSelected = async (file: File) => {
+    setAnalysisError(null);
+    try {
+      const analysis = await analyzeFile(file);
+      setPendingFile({ name: file.name, analysis });
+      setSelection(analysis.autoSelected);
+    } catch {
+      setAnalysisError(`Could not read "${file.name}". Make sure it's a valid CSV or Excel file.`);
+      setPendingFile(null);
+    }
   };
+
+  const preview = useMemo(() => {
+    if (!pendingFile) return null;
+    return buildFromSelection(pendingFile.analysis.candidatesByKind, selection);
+  }, [pendingFile, selection]);
+
+  const handleSelectionChange = (kind: SeriesKind, candidateId: string) => {
+    setSelection((s) => ({ ...s, [kind]: candidateId }));
+  };
+
+  const handleConfirmDetection = () => {
+    if (!pendingFile || !preview) return;
+    setRecords(preview.records);
+    setDataLabel(`${pendingFile.name} (${preview.records.length} hours, auto-detected)`);
+    setQualityIssues(preview.issues);
+    setPendingFile(null);
+  };
+
+  const handleCancelDetection = () => setPendingFile(null);
 
   const capacityFactors = useMemo(() => computeCapacityFactors(records), [records]);
-  const dqIssues = useMemo((): DataQualityIssue[] => {
-    const parseIssues: DataQualityIssue[] = parseErrors.map((message) => ({
-      type: 'csv-parse',
-      severity: 'error',
-      message,
-    }));
-    return [...parseIssues, ...checkDataQuality(records)];
-  }, [records, parseErrors]);
 
   const optimizationResult = useMemo(
     () => optimize(capacityFactors.windCF, capacityFactors.solarCF, params),
@@ -93,7 +114,20 @@ function App() {
             onLoadSample={handleLoadSample}
             dataInfo={dataLabel}
           />
-          <DataQualityPanel issues={dqIssues} />
+          {analysisError && <p className="warning-banner">{analysisError}</p>}
+          {pendingFile ? (
+            <DataDetectionPanel
+              fileName={pendingFile.name}
+              analysis={pendingFile.analysis}
+              selection={selection}
+              preview={preview}
+              onSelectionChange={handleSelectionChange}
+              onConfirm={handleConfirmDetection}
+              onCancel={handleCancelDetection}
+            />
+          ) : (
+            <DataQualityPanel issues={qualityIssues} />
+          )}
         </aside>
 
         <main className="app-main">

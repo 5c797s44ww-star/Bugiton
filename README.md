@@ -28,9 +28,31 @@ the tool optimizes *annual* renewable coverage via a flexible load.
 
 1. `npm install`
 2. `npm run dev`
-3. Use the synthetic demo dataset out of the box, or upload your own hourly
-   CSV with columns `timestamp, wind_generation, solar_generation,
-   wind_capacity, solar_capacity`.
+3. Use the synthetic demo dataset out of the box, or upload your own Fingrid
+   data (see below).
+
+## Data upload & automatic discovery
+
+The upload accepts CSV or Excel files in essentially any layout — Fingrid's
+native multi-dataset export (`datasetId, startTime, endTime, value` rows
+stacked together), a tidy single sheet with named columns, or a multi-sheet
+workbook. It automatically finds and matches:
+
+- Wind production forecast (Fingrid datasets 245/246)
+- Solar production forecast (247/248)
+- Wind available/installed capacity (268)
+- Solar available/installed capacity (267)
+
+matched by column header, sheet name, unit, Fingrid dataset ID, and Finnish or
+English naming (`src/lib/discovery/`). Sub-hourly data is detected and
+aggregated to hourly — averaged for MW power values, summed for MWh energy —
+and time-varying capacity is joined to production by timestamp (forward-filled
+as a step function) rather than using one constant for the whole period.
+
+Nothing is guessed silently: a "Data detected" panel shows what was matched
+and its confidence, lets you override the pick via dropdown when more than
+one column could match, and blocks running the optimizer until all four
+series are identified.
 
 ## Scripts
 
