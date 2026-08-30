@@ -76,6 +76,8 @@ export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBan
     return out;
   }, [timestamps, wind, solar, load, rangeStart, rangeEnd, lowerBand, upperBand, n]);
 
+  const hasSolarCapacity = solar.some((v) => v > 1e-9);
+
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const numWeeks = Math.max(1, Math.floor((maxTime - minTime) / (7 * MS_PER_DAY)));
 
@@ -83,10 +85,11 @@ export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBan
     <div className="panel">
       <h2>Hourly production &amp; DC load</h2>
       <p className="hint">
-        Wind and solar output at the optimizer's chosen capacity mix (capacity factor × installed capacity) — not
-        the raw resource shape. If the optimal solar share is small or 0% (see Key results), solar will look flat
-        here even on a sunny day, because little or no solar capacity was built in this mix. Check the Capacity
-        factors chart above for the underlying resource profile independent of that decision.
+        Wind and solar output at the optimizer's chosen capacity mix (capacity factor × installed capacity), each
+        drawn from zero — not stacked — so each technology's own shape stays readable even where they overlap.
+        {hasSolarCapacity
+          ? ' Total renewable generation (wind + solar) is shown as a separate line.'
+          : " This mix built ~0 solar capacity (see Optimal solar share in Key results), so solar is flat at zero here even though its resource — visible in the Capacity factors chart above — varies normally."}
       </p>
       <div className="range-controls">
         {(['year', 'month', 'week', 'custom'] as Mode[]).map((m) => (
@@ -144,24 +147,36 @@ export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBan
             fillOpacity={0.18}
             isAnimationActive={false}
           />
+          {/* Wind and solar are each drawn from zero (not stacked): stacking them would make
+              solar's band trace wind+solar's cumulative height rather than solar's own value,
+              which is misleading whenever wind is large and non-seasonal but solar is small and
+              highly seasonal - it would visually look like solar has winter output it doesn't. */}
           <Area
             type="monotone"
             dataKey="wind"
             name="Wind generation"
-            stackId="re"
             stroke="#2563eb"
             fill="#2563eb"
-            fillOpacity={0.55}
+            fillOpacity={0.4}
             isAnimationActive={false}
           />
           <Area
             type="monotone"
             dataKey="solar"
             name="Solar generation"
-            stackId="re"
             stroke="#d97706"
             fill="#f59e0b"
-            fillOpacity={0.55}
+            fillOpacity={0.4}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="re"
+            name="Total renewable generation"
+            stroke="#16a34a"
+            dot={false}
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
             isAnimationActive={false}
           />
           <Line
