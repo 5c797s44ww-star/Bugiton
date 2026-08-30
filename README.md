@@ -81,6 +81,48 @@ production exceeding capacity, impossible values) run both at each series'
 own native resolution, before aggregation can smooth anything over, and again
 on the final hourly view.
 
+## Battery storage (optional)
+
+An optional battery layer (none / 2h / 4h / 8h duration) can be added on top
+of the wind/solar optimization to test whether storage makes solar usefully
+compatible with a flexible DC load. Battery *power* capacity is a decision
+variable the optimizer sizes automatically; energy capacity is fixed by the
+selected duration (`energy = power × duration`).
+
+This is implemented as an **additive layer** (`src/lib/battery/`) on top of
+the existing optimizer, not a replacement — with no battery duration
+selected, the app calls the original, completely unmodified `optimize()`.
+The battery path works in two passes per candidate (wind/solar mix, battery
+power, total capacity):
+
+1. **Pass 1** — the existing, unmodified `allocateLoad` water-filling decides
+   the DC's hourly load schedule exactly as it would with no battery.
+2. **Pass 2** (`src/lib/battery/dispatch.ts`) — the battery greedily
+   time-shifts whatever surplus/deficit is left: `Renewable → DC → Battery →
+   Curtailment` when there's surplus, `Renewable + Battery → DC` when there's
+   a deficit. Charge and discharge are mutually exclusive by construction
+   (a hour is never both). A cyclic state-of-charge constraint
+   (`SOC[end] = SOC[start]`, seeded at 50%) is enforced by simulating the
+   period twice and keeping only the second pass, which is periodic to
+   floating-point precision once the battery — always short-duration
+   relative to a full year — has forgotten its arbitrary starting condition.
+   Charge/discharge efficiency are configurable separately (95%/95% default,
+   ≈90% round-trip). Renewable coverage counts only energy actually
+   *delivered* to the DC (direct + discharge), never charging losses.
+
+This is a heuristic, not a globally joint load+battery optimum — deliberately
+so, to stay solver-free and fast in the browser, consistent with the rest of
+this app's design. It's still exact about the constraints that matter:
+energy conservation, power/energy limits, and the cyclic SOC condition all
+hold precisely (see `src/lib/battery/dispatch.test.ts`).
+
+The **Battery impact on the optimal mix** table (computed on demand — it
+evaluates several scenarios) directly answers whether storage changes the
+conclusion that a wind-heavy mix is optimal, by comparing the capacity-optimal
+wind/solar/battery mix across durations. Battery capital cost is intentionally
+not modeled yet (see the spec) — this version is purely about technical
+feasibility and required overbuild.
+
 ## Scripts
 
 - `npm run dev` — start the dev server

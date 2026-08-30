@@ -11,6 +11,7 @@ function mkParams(overrides: Partial<Params> = {}): Params {
     windCostPerMW: null,
     solarCostPerMW: null,
     objective: 'capacity',
+    battery: { durationH: 0, chargeEfficiency: 0.95, dischargeEfficiency: 0.95, initialSocFraction: 0.5 },
     ...overrides,
   };
 }

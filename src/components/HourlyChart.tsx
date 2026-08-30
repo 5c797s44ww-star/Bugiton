@@ -20,11 +20,17 @@ interface Props {
   load: Float64Array;
   lowerBand: number;
   upperBand: number;
+  /** Battery series (charge/discharge in pu, soc in pu·h) - omitted entirely when no battery is active. */
+  charge?: Float64Array;
+  discharge?: Float64Array;
+  soc?: Float64Array;
+  batteryEnergyPuH?: number;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBand }: Props) {
+export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBand, charge, discharge, soc, batteryEnergyPuH }: Props) {
+  const hasBattery = charge != null && discharge != null && soc != null;
   const [mode, setMode] = useState<Mode>('week');
   const [monthIndex, setMonthIndex] = useState(0);
   const [weekIndex, setWeekIndex] = useState(0);
@@ -60,6 +66,9 @@ export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBan
       re: number;
       load: number;
       band: [number, number];
+      charge?: number;
+      discharge?: number;
+      soc?: number;
     }[] = [];
     for (let t = 0; t < n; t++) {
       const time = timestamps[t].getTime();
@@ -71,10 +80,13 @@ export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBan
         re: wind[t] + solar[t],
         load: load[t],
         band: [lowerBand, upperBand],
+        charge: hasBattery ? charge![t] : undefined,
+        discharge: hasBattery ? discharge![t] : undefined,
+        soc: hasBattery ? soc![t] : undefined,
       });
     }
     return out;
-  }, [timestamps, wind, solar, load, rangeStart, rangeEnd, lowerBand, upperBand, n]);
+  }, [timestamps, wind, solar, load, rangeStart, rangeEnd, lowerBand, upperBand, n, hasBattery, charge, discharge, soc]);
 
   const hasSolarCapacity = solar.some((v) => v > 1e-9);
 
@@ -134,6 +146,14 @@ export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBan
             scale="time"
           />
           <YAxis label={{ value: 'pu', angle: -90, position: 'insideLeft' }} />
+          {hasBattery && (
+            <YAxis
+              yAxisId="soc"
+              orientation="right"
+              domain={[0, batteryEnergyPuH && batteryEnergyPuH > 0 ? batteryEnergyPuH : 'auto']}
+              label={{ value: 'SOC (pu·h)', angle: 90, position: 'insideRight' }}
+            />
+          )}
           <Tooltip
             labelFormatter={(t) => new Date(t as number).toLocaleString()}
             formatter={(v) => Number(v).toFixed(3)}
@@ -188,6 +208,38 @@ export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBan
             strokeWidth={2}
             isAnimationActive={false}
           />
+          {hasBattery && (
+            <>
+              <Area
+                type="monotone"
+                dataKey="charge"
+                name="Battery charging"
+                stroke="#0891b2"
+                fill="#0891b2"
+                fillOpacity={0.35}
+                isAnimationActive={false}
+              />
+              <Area
+                type="monotone"
+                dataKey="discharge"
+                name="Battery discharging"
+                stroke="#be123c"
+                fill="#be123c"
+                fillOpacity={0.35}
+                isAnimationActive={false}
+              />
+              <Line
+                yAxisId="soc"
+                type="monotone"
+                dataKey="soc"
+                name="Battery SOC"
+                stroke="#7c3aed"
+                dot={false}
+                strokeWidth={1.5}
+                isAnimationActive={false}
+              />
+            </>
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

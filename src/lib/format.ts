@@ -14,6 +14,10 @@ export function mw(x: number, digits = 1): string {
   return `${num(x, digits)} MW`;
 }
 
+export function mwh(x: number, digits = 1): string {
+  return `${num(x, digits)} MWh`;
+}
+
 export function eur(x: number): string {
   if (Math.abs(x) >= 1_000_000) return `${num(x / 1_000_000, 2)} M€`;
   if (Math.abs(x) >= 1_000) return `${num(x / 1_000, 1)} k€`;
