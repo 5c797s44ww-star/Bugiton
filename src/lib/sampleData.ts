@@ -41,13 +41,19 @@ export function generateSampleData(year = 2024): HourlyRecord[] {
     windState = windState * 0.85 + (seasonalWind + shock) * 0.15;
     const windCF = Math.min(1, Math.max(0, windState + (rng() - 0.5) * 0.1));
 
-    // Solar: diurnal bell curve modulated by season, zero at night.
-    const seasonalSolarAmp = 0.55 + 0.35 * Math.cos((2 * Math.PI * (dayOfYear - 172)) / 365 + Math.PI);
-    const dayLengthFactor = 0.28 + 0.72 * (0.5 - 0.5 * Math.cos((2 * Math.PI * (dayOfYear - 172)) / 365 + Math.PI));
-    const sunAngle = ((hourOfDay - 12) / (6 + 6 * dayLengthFactor)) * (Math.PI / 2);
-    const solarShape = Math.cos(sunAngle);
+    // Solar: diurnal bell curve modulated by season. `season` is +1 at the summer solstice
+    // (~21 June, day-of-year 171) and -1 at the winter solstice (~21 December, day-of-year
+    // 354), so both day length and peak intensity swing between those two dates correctly -
+    // darkest/lowest around 21 Dec, brightest/highest around 21 Jun, as at Finnish latitudes.
+    const SUMMER_SOLSTICE_DAY = 171;
+    const season = Math.cos((2 * Math.PI * (dayOfYear - SUMMER_SOLSTICE_DAY)) / 365.25);
+    const dayLengthHours = 12 + 6 * season; // ~18h at midsummer, ~6h at midwinter
+    const hourFromNoon = hourOfDay - 12;
+    const halfDay = dayLengthHours / 2;
+    const solarShape = Math.abs(hourFromNoon) < halfDay ? Math.cos((hourFromNoon / halfDay) * (Math.PI / 2)) : 0;
+    const seasonalPeakIntensity = 0.5 + 0.4 * season; // ~0.9 at midsummer, ~0.1 at midwinter (low sun angle)
     const cloudNoise = 1 - rng() * 0.35;
-    const solarCF = solarShape > 0 ? Math.min(1, Math.max(0, solarShape * seasonalSolarAmp * cloudNoise)) : 0;
+    const solarCF = Math.min(1, Math.max(0, solarShape * seasonalPeakIntensity * cloudNoise));
 
     records.push({
       timestamp,
