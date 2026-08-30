@@ -1,8 +1,13 @@
 import type { BatteryDurationH, BatteryParams } from '../lib/types';
 
+export type BatteryCalcStatus = 'none' | 'stale' | 'fresh';
+
 interface Props {
   battery: BatteryParams;
   onChange: (patch: Partial<BatteryParams>) => void;
+  calcStatus: BatteryCalcStatus;
+  calculating: boolean;
+  onCalculate: () => void;
 }
 
 const DURATIONS: { value: BatteryDurationH; label: string }[] = [
@@ -12,7 +17,7 @@ const DURATIONS: { value: BatteryDurationH; label: string }[] = [
   { value: 8, label: '8 h' },
 ];
 
-export function BatteryPanel({ battery, onChange }: Props) {
+export function BatteryPanel({ battery, onChange, calcStatus, calculating, onCalculate }: Props) {
   return (
     <div className="panel">
       <h2>Battery storage</h2>
@@ -72,6 +77,25 @@ export function BatteryPanel({ battery, onChange }: Props) {
             Battery capital cost is not modeled in this version — this compares technical feasibility and required
             overbuild only.
           </p>
+
+          <div className="button-row">
+            <button type="button" onClick={onCalculate} disabled={calculating}>
+              {calculating ? 'Calculating…' : calcStatus === 'fresh' ? 'Recalculate' : 'Calculate battery scenario'}
+            </button>
+          </div>
+          {!calculating && calcStatus === 'none' && (
+            <p className="hint">
+              Sliders stay instant — the battery simulation (mix × battery size × capacity search) only runs when
+              you click Calculate.
+            </p>
+          )}
+          {!calculating && calcStatus === 'stale' && (
+            <p className="warning-banner">
+              Parameters or data changed since the last calculation. Results below are from the previous settings —
+              click Recalculate to update them.
+            </p>
+          )}
+          {!calculating && calcStatus === 'fresh' && <p className="ok-banner">✓ Battery results are up to date.</p>}
         </>
       )}
     </div>

@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 import { ParamsPanel } from './components/ParamsPanel';
-import { BatteryPanel } from './components/BatteryPanel';
+import { BatteryPanel, type BatteryCalcStatus } from './components/BatteryPanel';
 import { KpiTable } from './components/KpiTable';
 import { BatteryKpiPanel } from './components/BatteryKpiPanel';
 import { CapacityFactorChart } from './components/CapacityFactorChart';
@@ -19,7 +19,7 @@ import { optimize } from './lib/optimizer';
 import { optimizeWithBattery } from './lib/battery/optimize';
 import { analyzeFiles, buildFromSelection } from './lib/discovery';
 import type { AnalyzeResult, SeriesKind } from './lib/discovery';
-import type { BatteryParams, DataQualityIssue, Params } from './lib/types';
+import type { BatteryOptimizationResult, BatteryParams, DataQualityIssue, Params } from './lib/types';
 
 const DEFAULT_PARAMS: Params = {
   utilization: 0.8,
@@ -42,8 +42,14 @@ interface PendingUpload {
   analysis: AnalyzeResult;
 }
 
+interface BatteryCalculatedFor {
+  paramsKey: string;
+  dataVersion: number;
+}
+
 function App() {
   const [capacityFactors, setCapacityFactors] = useState<CapacityFactors>(() => computeCapacityFactors(generateSampleData()));
+  const [dataVersion, setDataVersion] = useState(0);
   const [dataLabel, setDataLabel] = useState('Synthetic demo data (2024, not real measurements)');
   const [qualityIssues, setQualityIssues] = useState<DataQualityIssue[]>(() => checkDataQuality(generateSampleData()));
   const [params, setParams] = useState<Params>(DEFAULT_PARAMS);
@@ -52,16 +58,30 @@ function App() {
   const [selection, setSelection] = useState<Partial<Record<SeriesKind, string>>>({});
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
+  // The battery simulation (mix x battery-size x capacity search) is heavy (roughly a second),
+  // so - unlike every other parameter here - it does NOT run reactively on every slider tick.
+  // It only runs when the user clicks Calculate, keeping the rest of the form instant.
+  const [batteryResult, setBatteryResult] = useState<BatteryOptimizationResult | null>(null);
+  const [batteryCalculating, setBatteryCalculating] = useState(false);
+  const [batteryCalculatedFor, setBatteryCalculatedFor] = useState<BatteryCalculatedFor | null>(null);
+
   const updateParams = (patch: Partial<Params>) => setParams((p) => ({ ...p, ...patch }));
   const updateBattery = (patch: Partial<BatteryParams>) => setParams((p) => ({ ...p, battery: { ...p.battery, ...patch } }));
+
+  const resetBatteryResult = () => {
+    setBatteryResult(null);
+    setBatteryCalculatedFor(null);
+  };
 
   const handleLoadSample = () => {
     const sample = generateSampleData();
     setCapacityFactors(computeCapacityFactors(sample));
+    setDataVersion((v) => v + 1);
     setDataLabel('Synthetic demo data (2024, not real measurements)');
     setQualityIssues(checkDataQuality(sample));
     setPending(null);
     setAnalysisError(null);
+    resetBatteryResult();
   };
 
   const runAnalysis = async (files: File[]) => {
@@ -95,35 +115,66 @@ function App() {
   const handleConfirmDetection = () => {
     if (!pending || !preview) return;
     setCapacityFactors(preview.canonical);
+    setDataVersion((v) => v + 1);
     const fileList = pending.files.map((f) => f.name).join(', ');
     setDataLabel(`${fileList} (${preview.canonical.timestamps.length} hours, auto-detected)`);
     setQualityIssues(preview.issues);
     setPending(null);
+    resetBatteryResult();
   };
 
   const handleCancelDetection = () => setPending(null);
 
   const isBattery = params.battery.durationH > 0;
+  const batteryParamsKey = useMemo(() => JSON.stringify(params), [params]);
 
-  // Battery storage is an additive layer: with no duration selected, this is exactly the
-  // original, unmodified wind/solar optimizer call - nothing about that path changes.
-  const optimizationResult = useMemo(
-    () =>
-      isBattery
-        ? optimizeWithBattery(capacityFactors.windCF, capacityFactors.solarCF, params)
-        : optimize(capacityFactors.windCF, capacityFactors.solarCF, params),
-    [capacityFactors, params, isBattery],
+  // The no-battery optimizer runs reactively on every parameter change (no Calculate button),
+  // and each call is itself not cheap (a fine mix scan with a capacity bisection per point).
+  // Debouncing which `params` value it reacts to - while every input still displays its live,
+  // undebounced value - means dragging a slider stays visually instant and only the heavier
+  // chart/table recompute settles in shortly after the user stops, instead of on every pixel.
+  const [debouncedParams, setDebouncedParams] = useState(params);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedParams(params), 150);
+    return () => clearTimeout(timer);
+  }, [params]);
+
+  const handleCalculateBattery = () => {
+    setBatteryCalculating(true);
+    // Defer so the "Calculating…" state actually paints before this synchronous, roughly
+    // one-second computation blocks the main thread (there is no worker to offload it to).
+    setTimeout(() => {
+      const result = optimizeWithBattery(capacityFactors.windCF, capacityFactors.solarCF, params);
+      setBatteryResult(result);
+      setBatteryCalculatedFor({ paramsKey: batteryParamsKey, dataVersion });
+      setBatteryCalculating(false);
+    }, 20);
+  };
+
+  const batteryCalcStatus: BatteryCalcStatus = !batteryResult
+    ? 'none'
+    : batteryCalculatedFor?.paramsKey === batteryParamsKey && batteryCalculatedFor?.dataVersion === dataVersion
+      ? 'fresh'
+      : 'stale';
+
+  // Debounced baseline: the original, unmodified wind/solar optimizer call. When a battery
+  // duration is selected, its numbers only replace this once the user clicks Calculate.
+  const baselineResult = useMemo(
+    () => optimize(capacityFactors.windCF, capacityFactors.solarCF, debouncedParams),
+    [capacityFactors, debouncedParams],
   );
+
+  const displayResult = isBattery && batteryResult ? batteryResult : baselineResult;
 
   const sdStats = useMemo(
-    () => surplusDeficit(optimizationResult.load, optimizationResult.re),
-    [optimizationResult],
+    () => surplusDeficit(displayResult.load, displayResult.re),
+    [displayResult],
   );
 
-  const mixTableBestCapacity = 'bestCapacity' in optimizationResult ? optimizationResult.bestCapacity : optimizationResult.best;
-  const mixTableBestCost = 'bestCost' in optimizationResult ? optimizationResult.bestCost : null;
-  const batteryDispatch = 'dispatch' in optimizationResult ? optimizationResult.dispatch : null;
-  const batteryBest = 'batteryPowerPu' in optimizationResult.best ? optimizationResult.best : null;
+  const mixTableBestCapacity = 'bestCapacity' in displayResult ? displayResult.bestCapacity : displayResult.best;
+  const mixTableBestCost = 'bestCost' in displayResult ? displayResult.bestCost : null;
+  const batteryDispatch = 'dispatch' in displayResult ? displayResult.dispatch : null;
+  const batteryBest = 'batteryPowerPu' in displayResult.best ? displayResult.best : null;
 
   return (
     <div className="app">
@@ -145,7 +196,13 @@ function App() {
             onLoadSample={handleLoadSample}
             dataInfo={dataLabel}
           />
-          <BatteryPanel battery={params.battery} onChange={updateBattery} />
+          <BatteryPanel
+            battery={params.battery}
+            onChange={updateBattery}
+            calcStatus={batteryCalcStatus}
+            calculating={batteryCalculating}
+            onCalculate={handleCalculateBattery}
+          />
           {analysisError && <p className="warning-banner">{analysisError}</p>}
           {pending ? (
             <DataDetectionPanel
@@ -162,7 +219,7 @@ function App() {
         </aside>
 
         <main className="app-main">
-          <KpiTable params={params} best={optimizationResult.best} load={optimizationResult.load} />
+          <KpiTable params={debouncedParams} best={displayResult.best} load={displayResult.load} />
           {batteryBest && batteryDispatch && <BatteryKpiPanel params={params} best={batteryBest} dispatch={batteryDispatch} />}
           <CapacityFactorChart
             timestamps={capacityFactors.timestamps}
@@ -171,18 +228,18 @@ function App() {
           />
           <HourlyChart
             timestamps={capacityFactors.timestamps}
-            wind={optimizationResult.wind}
-            solar={optimizationResult.solar}
-            load={optimizationResult.load}
-            lowerBand={optimizationResult.lowerBand}
-            upperBand={optimizationResult.upperBand}
+            wind={displayResult.wind}
+            solar={displayResult.solar}
+            load={displayResult.load}
+            lowerBand={displayResult.lowerBand}
+            upperBand={displayResult.upperBand}
             charge={batteryDispatch?.charge}
             discharge={batteryDispatch?.discharge}
             soc={batteryDispatch?.soc}
             batteryEnergyPuH={batteryBest?.batteryEnergyPuH}
           />
-          <DurationCurveChart re={optimizationResult.re} />
-          <MixTable rows={optimizationResult.transparencyTable} bestCapacity={mixTableBestCapacity} bestCost={mixTableBestCost} />
+          <DurationCurveChart re={displayResult.re} />
+          <MixTable rows={displayResult.transparencyTable} bestCapacity={mixTableBestCapacity} bestCost={mixTableBestCost} />
           <BatteryComparisonTable windCF={capacityFactors.windCF} solarCF={capacityFactors.solarCF} params={params} />
           <SurplusDeficitPanel stats={sdStats} />
         </main>

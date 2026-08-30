@@ -89,6 +89,15 @@ compatible with a flexible DC load. Battery *power* capacity is a decision
 variable the optimizer sizes automatically; energy capacity is fixed by the
 selected duration (`energy = power × duration`).
 
+Unlike every other parameter, the battery simulation does **not** run
+reactively on every change — it's a nested mix × battery-size × capacity
+search that takes roughly a second, so it only runs when you click
+**Calculate battery scenario**. Changing a parameter or the underlying data
+afterwards marks the shown results "stale" (with a banner saying so) rather
+than silently recomputing; click **Recalculate** to bring them up to date.
+The no-battery baseline still updates automatically as you adjust sliders,
+debounced briefly so dragging itself stays instant.
+
 This is implemented as an **additive layer** (`src/lib/battery/`) on top of
 the existing optimizer, not a replacement — with no battery duration
 selected, the app calls the original, completely unmodified `optimize()`.
