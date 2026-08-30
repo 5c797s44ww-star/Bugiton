@@ -82,6 +82,12 @@ export function HourlyChart({ timestamps, wind, solar, load, lowerBand, upperBan
   return (
     <div className="panel">
       <h2>Hourly production &amp; DC load</h2>
+      <p className="hint">
+        Wind and solar output at the optimizer's chosen capacity mix (capacity factor × installed capacity) — not
+        the raw resource shape. If the optimal solar share is small or 0% (see Key results), solar will look flat
+        here even on a sunny day, because little or no solar capacity was built in this mix. Check the Capacity
+        factors chart above for the underlying resource profile independent of that decision.
+      </p>
       <div className="range-controls">
         {(['year', 'month', 'week', 'custom'] as Mode[]).map((m) => (
           <button key={m} className={mode === m ? 'active' : ''} onClick={() => setMode(m)}>
