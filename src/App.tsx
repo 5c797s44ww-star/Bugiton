@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import './App.css';
 import { ParamsPanel } from './components/ParamsPanel';
 import { KpiTable } from './components/KpiTable';
+import { CapacityFactorChart } from './components/CapacityFactorChart';
 import { HourlyChart } from './components/HourlyChart';
 import { DurationCurveChart } from './components/DurationCurveChart';
 import { MixTable } from './components/MixTable';
@@ -137,6 +138,11 @@ function App() {
 
         <main className="app-main">
           <KpiTable params={params} best={optimizationResult.best} load={optimizationResult.load} />
+          <CapacityFactorChart
+            timestamps={capacityFactors.timestamps}
+            windCF={capacityFactors.windCF}
+            solarCF={capacityFactors.solarCF}
+          />
           <HourlyChart
             timestamps={capacityFactors.timestamps}
             wind={optimizationResult.wind}
